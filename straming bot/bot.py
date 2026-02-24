@@ -15,7 +15,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def main():
-    # 👇 FIX YAHAN HAI: Client ko main() ke andar daal diya taaki loop same rahe 👇
+    # Client Setup
     app = Client(
         "TelegramStreamBot",
         api_id=Config.API_ID,
@@ -28,25 +28,14 @@ async def main():
     # 1. Start Web Server
     server_task = asyncio.create_task(start_web_server())
     
-    # 2. Start File Manager Cleanup Loop
+    # 2. Start File Manager Cleanup Loop (Auto-Cleanup)
     cleanup_task = asyncio.create_task(file_manager.cleanup_loop())
 
     # 3. Start Telegram Bot
     try:
         await app.start()
         logger.info("🤖 Bot Started!")
-        logger.info(f"admin_id: {Config.API_ID}")
-        import asyncio
-from modules.file_manager import file_manager
-
-# Tumhare bot ka start function kuch aisa dikhta hoga:
-async def main():
-    # 👇 NAYA FEATURE: Auto-Cleanup Engine start karna
-    asyncio.create_task(file_manager.cleanup_loop())
-    
-    # Baaki ka purana code (client.start() ya web server start wagera)
-    print("Bot is starting...")
-    # ...
+        logger.info(f"Admin ID: {Config.ADMIN_ID}") 
 
         # Keep the bot running
         await idle()
@@ -68,4 +57,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
-
