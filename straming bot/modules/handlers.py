@@ -96,6 +96,14 @@ async def telegram_file_handler(client: Client, message: Message):
         await message.reply_text("❌ This document does not look like a video.")
         return
 
+    # 👇 NAYA FEATURE: 2GB Max Size Barrier
+    if media.file_size > Config.MAX_FILE_SIZE:
+        await message.reply_text(
+            f"❌ **Error: File is too large!**\n"
+            f"Server crash hone se bachane ke liye maximum 2GB ki file allowed hai.\n"
+            f"Aapki file: `{format_bytes(media.file_size)}`"
+        )
+        return
     # 2. Concurrency Check
     if file_manager.is_user_locked(user_id):
         await message.reply_text("⚠️ You already have a process running. Please wait.")
@@ -215,3 +223,4 @@ async def url_handler(client: Client, message: Message):
             
     finally:
         file_manager.unlock_user(user_id)
+
