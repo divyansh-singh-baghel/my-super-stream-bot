@@ -33,37 +33,47 @@ def get_readable_time(seconds: int) -> str:
     ping_time += ":".join(time_list)
     return ping_time
 
+def format_bytes(size: float) -> str:
+    """Converts bytes to a readable format (KB, MB, GB)."""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size < 1024.0:
+            return f"{size:.2f} {unit}"
+        size /= 1024.0
+    return f"{size:.2f} PB"
+
 async def progress_bar(current, total, status_msg, start_time):
     """Updates the progress message during download."""
     now = time.time()
     diff = now - start_time
     if round(diff % 5.00) == 0 or current == total:
         percentage = current * 100 / total
-        speed = current / diff
-        elapsed_time = round(diff) * 1000
-        time_to_completion = round((total - current) / speed) * 1000
-        estimated_total_time = elapsed_time + time_to_completion
-
-        elapsed_time = get_readable_time(elapsed_time / 1000)
-        estimated_total_time = get_readable_time(estimated_total_time / 1000)
+        speed = current / diff if diff > 0 else 0
+        
+        # Time remaining (ETA)
+        time_to_completion = round((total - current) / speed) if speed > 0 else 0
+        estimated_time = get_readable_time(time_to_completion)
 
         try:
             await status_msg.edit_text(
                 f"📥 **Downloading...**\n"
                 f"📊 Progress: {percentage:.2f}%\n"
-                f"🚀 Speed: {get_readable_time(speed)}/s\n"
-                f"⏳ ETA: {estimated_total_time}"
+                f"🚀 Speed: {format_bytes(speed)}/s\n"
+                f"⏳ ETA: {estimated_time}"
             )
         except Exception:
             pass
+
+def get_safe_base_url() -> str:
+    """Ensures the BASE_URL has https:// and no trailing slash."""
+    url = Config.BASE_URL.rstrip('/')
+    if not url.startswith("http"):
+        url = "https://" + url
+    return url
 
 # --- Handlers ---
 
 @Client.on_message(filters.command("start"))
 async def start_handler(client: Client, message: Message):
-    # 👇👇 YAHAN MAINE PRINT ADD KIYA HAI DEBUGGING KE LIYE 👇👇
-    print("🔥 BOT KO MESSAGE MIL GAYA BHAII !!")
-    
     await message.reply_text(
         "👋 **Hello! I am a Video Streaming Bot.**\n\n"
         "📤 **Send me a video file** or a **direct download link**.\n"
@@ -109,12 +119,14 @@ async def telegram_file_handler(client: Client, message: Message):
 
         # 4. Generate Link
         token = file_manager.add_video(user_id, save_path, media.mime_type)
-        stream_link = f"{Config.BASE_URL}/watch/{token}"
+        
+        # Safe URL check
+        stream_link = f"{get_safe_base_url()}/watch/{token}"
 
         await status_msg.edit_text(
             f"✅ **Video Ready!**\n\n"
             f"📂 File: `{media.file_name or filename}`\n"
-            f"💾 Size: `{get_readable_time(media.file_size)}`\n"
+            f"💾 Size: `{format_bytes(media.file_size)}`\n"
             f"⏳ Expires in: 24 Hours",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("▶ Watch Online", url=stream_link)]
@@ -177,14 +189,15 @@ async def url_handler(client: Client, message: Message):
                         # Update progress every few seconds
                         if total_size > 0:
                             now = time.time()
-                            if (now - start_time) > 5: # Update every 5s to avoid spam
-                                # (Simplified progress logic for brevity in URL handler)
-                                await status_msg.edit_text(f"📥 **Downloading URL...**\nSize: {downloaded // (1024*1024)} MB")
+                            if (now - start_time) > 5:
+                                await status_msg.edit_text(f"📥 **Downloading URL...**\nSize: {format_bytes(downloaded)}")
                                 start_time = now
 
         # 4. Generate Link
         token = file_manager.add_video(user_id, save_path, "video/mp4")
-        stream_link = f"{Config.BASE_URL}/watch/{token}"
+        
+        # Safe URL check
+        stream_link = f"{get_safe_base_url()}/watch/{token}"
 
         await status_msg.edit_text(
             f"✅ **URL Downloaded!**\n\n"
