@@ -19,6 +19,9 @@ class FileManager:
         self.banned_users: Set[int] = set()
         self.user_stats: Dict[int, int] = {}  # Spammers ko track karne ke liye
         
+        # 👇 NAYA FEATURE: Channel Posts ki qualities yaad rakhne ke liye
+        self.post_mappings: Dict[str, dict] = {} 
+        
         # Dynamic Settings
         self.settings = {
             "expiry": Config.EXPIRY_SECONDS,
@@ -27,6 +30,18 @@ class FileManager:
 
     def generate_token(self) -> str:
         return secrets.token_urlsafe(16)
+
+    # --- Multi-Quality Channel Link Mapping (Hacker Backend) ---
+    
+    def save_post_mapping(self, mapping_data: dict) -> str:
+        """Channel post ke links ko ek chote code (post_id) se map karta hai."""
+        post_id = secrets.token_hex(4) # Ek unique short code banayega
+        self.post_mappings[post_id] = mapping_data
+        return post_id
+
+    def get_post_mapping(self, post_id: str) -> dict:
+        """User jab DM me aayega toh ye function usko sahi link dega."""
+        return self.post_mappings.get(post_id, {})
 
     # --- User Control & Anti-Spam ---
     
