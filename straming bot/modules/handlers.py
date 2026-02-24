@@ -6,6 +6,7 @@ import aiohttp
 import mimetypes
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.enums import ChatType
 from config import Config
 from modules.file_manager import file_manager
 
@@ -74,7 +75,7 @@ def get_safe_base_url() -> str:
 
 @Client.on_message(filters.command("start"))
 async def start_handler(client: Client, message: Message):
-    # 👇 NAYA FEATURE: Deep Link Checker (Agar user channel ke Watch Online button se aaya hai)
+    # 👇 NAYA FEATURE: Deep Link Checker
     if len(message.command) > 1 and message.command[1].startswith("watch_"):
         post_id = message.command[1].replace("watch_", "")
         mapping = file_manager.get_post_mapping(post_id)
@@ -85,7 +86,7 @@ async def start_handler(client: Client, message: Message):
         # User ko wahi qualities dikhana jo post mein thi
         buttons = []
         for quality_name, msg_id in mapping.items():
-            # Yahan hum aage ka logic trigger karne ke liye callback data bhej rahe hain
+            # Yahan callback data ban raha hai jo hum next step mein process karenge
             buttons.append([InlineKeyboardButton(quality_name, callback_data=f"fetch_{msg_id}")])
             
         await message.reply_text(
@@ -254,38 +255,49 @@ async def url_handler(client: Client, message: Message):
 
 # --- THE HACKER BACKEND (Auto-Reply & Fetch) ---
 
-@Client.on_message(filters.chat(Config.MAIN_CHANNEL_ID))
+@Client.on_message((filters.chat(Config.MAIN_CHANNEL_ID) | filters.private) & ~filters.command(["start", "stats", "settings", "ban", "unban"]))
 async def channel_post_listener(client: Client, message: Message):
-    """Main channel mein aane wale messages ko scan karega aur reply dega"""
+    """Main channel ya DM mein aane wale posts ko scan karega"""
+    
+    # Check karo ki message me inline buttons hain ya nahi
     if not getattr(message, "reply_markup", None) or not getattr(message.reply_markup, "inline_keyboard", None):
-        return # Agar post mein buttons nahi hain, toh ignore karo
+        return 
         
     mapping = {}
-    # DB Channel ID me se '-100' hata kar check karenge (kyunki link mein -100 nahi hota)
-    db_id_str = str(Config.DB_CHANNEL_ID).replace('-100', '')
     
-    # 1. Buttons ka X-Ray karke links nikalna
+    # Smarter X-Ray: Ab strict DB ID ki jagah kisi bhi valid t.me link ko pakdega
     for row in message.reply_markup.inline_keyboard:
         for btn in row:
-            if btn.url and f"c/{db_id_str}" in btn.url:
+            if btn.url and ("t.me/c/" in btn.url or "t.me/" in btn.url):
                 try:
-                    # Link (t.me/c/123/317) me se aakhiri ka 317 nikalna
-                    msg_id = int(btn.url.split('/')[-1])
-                    mapping[btn.text] = msg_id # Example: {"360p": 317}
+                    # Link (e.g., t.me/c/123/317) me se aakhiri ka 317 (Message ID) nikalna
+                    msg_id = int(btn.url.strip('/').split('/')[-1])
+                    quality_text = btn.text.strip() # Button pe likha text (e.g., "720p")
+                    mapping[quality_text] = msg_id 
                 except ValueError:
                     continue
                     
-    # 2. Agar qualities mil gayi, toh Insta-Reply karna
+    # Agar qualities mil gayi, toh Magic shuru!
     if mapping:
         post_id = file_manager.save_post_mapping(mapping)
         bot_info = await client.get_me()
         
-        # Ye Deep Link user ko direct bot ke DM mein le jayega
+        # Deep Link jo user ko DM me start karwayega
         deep_link = f"https://t.me/{bot_info.username}?start=watch_{post_id}"
         
-        await message.reply_text(
-            "🍿 **Stream This Episode Online**\n_Select your quality and watch instantly!_",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("▶️ Watch Online", url=deep_link)]
-            ])
-        )
+        if message.chat.type == ChatType.PRIVATE:
+            # Agar tumne DM me test karne ke liye forward kiya hai:
+            await message.reply_text(
+                "✅ **Post Scanned Successfully!** (Testing Mode)\nYe raha is post ka generated link:",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("▶️ Watch Online", url=deep_link)]
+                ])
+            )
+        else:
+            # Agar Main Channel mein Auto-Poster ne post daala hai:
+            await message.reply_text(
+                "🍿 **Stream This Episode Online**\n_Select your quality and watch instantly!_",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("▶️ Watch Online", url=deep_link)]
+                ])
+            )
