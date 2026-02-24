@@ -74,19 +74,38 @@ def get_safe_base_url() -> str:
 
 @Client.on_message(filters.command("start"))
 async def start_handler(client: Client, message: Message):
-    await message.reply_text(
-        "👋 **Hello! I am a Video Streaming Bot.**\n\n"
-        "📤 **Send me a video file** or a **direct download link**.\n"
-        "🔗 I will generate a temporary public streaming link for you.\n\n"
-        "⚠️ _Links expire based on Admin settings._"
-    )
+    # 👇 NAYA FEATURE: Deep Link Checker (Agar user channel ke Watch Online button se aaya hai)
+    if len(message.command) > 1 and message.command[1].startswith("watch_"):
+        post_id = message.command[1].replace("watch_", "")
+        mapping = file_manager.get_post_mapping(post_id)
+        
+        if not mapping:
+            return await message.reply_text("❌ This link has expired or is invalid.")
+            
+        # User ko wahi qualities dikhana jo post mein thi
+        buttons = []
+        for quality_name, msg_id in mapping.items():
+            # Yahan hum aage ka logic trigger karne ke liye callback data bhej rahe hain
+            buttons.append([InlineKeyboardButton(quality_name, callback_data=f"fetch_{msg_id}")])
+            
+        await message.reply_text(
+            "🎬 **Video Found!**\n\nPlease select your preferred quality to start streaming:",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+    else:
+        # Normal Start Message
+        await message.reply_text(
+            "👋 **Hello! I am a Video Streaming Bot.**\n\n"
+            "📤 **Send me a video file** or a **direct download link**.\n"
+            "🔗 I will generate a temporary public streaming link for you.\n\n"
+            "⚠️ _Links expire based on Admin settings._"
+        )
 
 @Client.on_message(filters.video | filters.document)
 async def telegram_file_handler(client: Client, message: Message):
     """Handles video files uploaded directly to Telegram."""
     user_id = message.from_user.id
     
-    # 👇 NAYA FEATURE: Boss Mode Security Checks
     if file_manager.is_banned(user_id):
         await message.reply_text("❌ You are permanently BANNED from using this bot.")
         return
@@ -95,17 +114,14 @@ async def telegram_file_handler(client: Client, message: Message):
         await message.reply_text("⚙️ **Bot is under Maintenance!**\nBoss abhi bot par kuch kaam kar rahe hain. Thodi der baad try karein.")
         return
 
-    # 1. Filter Check
     media = message.video or message.document
     if not media:
         return
 
-    # Basic MIME check for documents
     if message.document and "video" not in (media.mime_type or ""):
         await message.reply_text("❌ This document does not look like a video.")
         return
 
-    # 2. Max Size Barrier (Server Saver)
     if media.file_size > Config.MAX_FILE_SIZE:
         await message.reply_text(
             f"❌ **Error: File is too large!**\n"
@@ -114,7 +130,6 @@ async def telegram_file_handler(client: Client, message: Message):
         )
         return
 
-    # 3. Concurrency Check
     if file_manager.is_user_locked(user_id):
         await message.reply_text("⚠️ You already have a process running. Please wait.")
         return
@@ -123,7 +138,6 @@ async def telegram_file_handler(client: Client, message: Message):
     status_msg = await message.reply_text("⏳ **Processing video...**\n_Please wait while I prepare the stream._")
 
     try:
-        # Download Logic
         file_ext = mimetypes.guess_extension(media.mime_type) or ".mp4"
         filename = f"{uuid.uuid4()}{file_ext}"
         save_path = os.path.join(Config.STORAGE_DIR, filename)
@@ -135,11 +149,8 @@ async def telegram_file_handler(client: Client, message: Message):
             progress_args=(status_msg, start_time)
         )
 
-        # Generate Link
         token = file_manager.add_video(user_id, save_path, media.mime_type)
         stream_link = f"{get_safe_base_url()}/watch/{token}"
-        
-        # Expiry time ko settings se read karna
         expiry_hours = file_manager.settings["expiry"] // 3600
 
         await status_msg.edit_text(
@@ -161,14 +172,12 @@ async def telegram_file_handler(client: Client, message: Message):
     finally:
         file_manager.unlock_user(user_id)
 
-
 @Client.on_message(filters.text & filters.regex(r"(https?://[^\s]+)"))
 async def url_handler(client: Client, message: Message):
     """Handles direct video URLs."""
     user_id = message.from_user.id
     url = message.text.strip()
 
-    # 👇 NAYA FEATURE: Boss Mode Security Checks
     if file_manager.is_banned(user_id):
         await message.reply_text("❌ You are permanently BANNED from using this bot.")
         return
@@ -197,13 +206,11 @@ async def url_handler(client: Client, message: Message):
                      await status_msg.edit_text("❌ Error: The URL does not point to a valid video file.")
                      return
 
-                # Download logic
                 filename = f"{uuid.uuid4()}.mp4" 
                 save_path = os.path.join(Config.STORAGE_DIR, filename)
                 
                 total_size = int(response.headers.get('Content-Length', 0))
                 
-                # NAYA FEATURE: Check size before downloading URL
                 if total_size > Config.MAX_FILE_SIZE:
                     await status_msg.edit_text("❌ **Error: File from URL is too large!** (Max 2GB)")
                     return
@@ -224,7 +231,6 @@ async def url_handler(client: Client, message: Message):
                                 await status_msg.edit_text(f"📥 **Downloading URL...**\nSize: {format_bytes(downloaded)}")
                                 start_time = now
 
-        # Generate Link
         token = file_manager.add_video(user_id, save_path, "video/mp4")
         stream_link = f"{get_safe_base_url()}/watch/{token}"
         expiry_hours = file_manager.settings["expiry"] // 3600
@@ -245,3 +251,41 @@ async def url_handler(client: Client, message: Message):
             
     finally:
         file_manager.unlock_user(user_id)
+
+# --- THE HACKER BACKEND (Auto-Reply & Fetch) ---
+
+@Client.on_message(filters.chat(Config.MAIN_CHANNEL_ID))
+async def channel_post_listener(client: Client, message: Message):
+    """Main channel mein aane wale messages ko scan karega aur reply dega"""
+    if not getattr(message, "reply_markup", None) or not getattr(message.reply_markup, "inline_keyboard", None):
+        return # Agar post mein buttons nahi hain, toh ignore karo
+        
+    mapping = {}
+    # DB Channel ID me se '-100' hata kar check karenge (kyunki link mein -100 nahi hota)
+    db_id_str = str(Config.DB_CHANNEL_ID).replace('-100', '')
+    
+    # 1. Buttons ka X-Ray karke links nikalna
+    for row in message.reply_markup.inline_keyboard:
+        for btn in row:
+            if btn.url and f"c/{db_id_str}" in btn.url:
+                try:
+                    # Link (t.me/c/123/317) me se aakhiri ka 317 nikalna
+                    msg_id = int(btn.url.split('/')[-1])
+                    mapping[btn.text] = msg_id # Example: {"360p": 317}
+                except ValueError:
+                    continue
+                    
+    # 2. Agar qualities mil gayi, toh Insta-Reply karna
+    if mapping:
+        post_id = file_manager.save_post_mapping(mapping)
+        bot_info = await client.get_me()
+        
+        # Ye Deep Link user ko direct bot ke DM mein le jayega
+        deep_link = f"https://t.me/{bot_info.username}?start=watch_{post_id}"
+        
+        await message.reply_text(
+            "🍿 **Stream This Episode Online**\n_Select your quality and watch instantly!_",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("▶️ Watch Online", url=deep_link)]
+            ])
+        )
