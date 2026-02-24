@@ -20,7 +20,8 @@ app = Client(
     api_id=Config.API_ID,
     api_hash=Config.API_HASH,
     bot_token=Config.BOT_TOKEN,
-    plugins=dict(root="modules")
+    plugins=dict(root="modules"),
+    in_memory=True
 )
 
 async def main():
@@ -61,4 +62,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
+
         pass
