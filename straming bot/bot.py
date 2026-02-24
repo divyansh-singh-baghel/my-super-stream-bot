@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize Bot
+# Initialize Bot (in_memory=True yahan set hai)
 app = Client(
     "TelegramStreamBot",
     api_id=Config.API_ID,
@@ -26,7 +26,6 @@ app = Client(
 
 async def main():
     # 1. Start Web Server
-    # We run this as a task so it doesn't block the bot
     server_task = asyncio.create_task(start_web_server())
     
     # 2. Start File Manager Cleanup Loop
@@ -36,31 +35,25 @@ async def main():
     try:
         await app.start()
         logger.info("🤖 Bot Started!")
-        logger.info(f"admin_id: {Config.API_ID}") # Just for debug
+        logger.info(f"admin_id: {Config.API_ID}") # Verification ke liye
 
         # Keep the bot running
         await idle()
     except Exception as e:
-        logger.error(f"Error in main loop: {e}")
+        logger.error(f"❌ Error in main loop: {e}")
     finally:
-        # 4. Graceful Shutdown
+        # Graceful Shutdown
         logger.info("🛑 Stopping Bot...")
         await app.stop()
-        logger.info("🛑 Stopping Server...")
         server_task.cancel()
         cleanup_task.cancel()
-        
-        # Purge temporary files
         file_manager.purge_all()
-        logger.info("👋 Goodbye!")
 
 if __name__ == "__main__":
-    # Windows specific event loop policy (if running locally on Windows)
     if sys.platform == 'win32':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-
         pass
