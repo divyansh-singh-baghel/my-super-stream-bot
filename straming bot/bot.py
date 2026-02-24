@@ -36,6 +36,17 @@ async def main():
         await app.start()
         logger.info("🤖 Bot Started!")
         logger.info(f"admin_id: {Config.API_ID}")
+        import asyncio
+from modules.file_manager import file_manager
+
+# Tumhare bot ka start function kuch aisa dikhta hoga:
+async def main():
+    # 👇 NAYA FEATURE: Auto-Cleanup Engine start karna
+    asyncio.create_task(file_manager.cleanup_loop())
+    
+    # Baaki ka purana code (client.start() ya web server start wagera)
+    print("Bot is starting...")
+    # ...
 
         # Keep the bot running
         await idle()
@@ -57,3 +68,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
+
