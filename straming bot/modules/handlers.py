@@ -78,7 +78,7 @@ async def start_handler(client: Client, message: Message):
         "👋 **Hello! I am a Video Streaming Bot.**\n\n"
         "📤 **Send me a video file** or a **direct download link**.\n"
         "🔗 I will generate a temporary public streaming link for you.\n\n"
-        "⚠️ _Links expire in 24 hours._"
+        "⚠️ _Links expire based on Admin settings._"
     )
 
 @Client.on_message(filters.video | filters.document)
@@ -86,6 +86,15 @@ async def telegram_file_handler(client: Client, message: Message):
     """Handles video files uploaded directly to Telegram."""
     user_id = message.from_user.id
     
+    # 👇 NAYA FEATURE: Boss Mode Security Checks
+    if file_manager.is_banned(user_id):
+        await message.reply_text("❌ You are permanently BANNED from using this bot.")
+        return
+        
+    if file_manager.settings.get("maintenance", False) and user_id != Config.ADMIN_ID:
+        await message.reply_text("⚙️ **Bot is under Maintenance!**\nBoss abhi bot par kuch kaam kar rahe hain. Thodi der baad try karein.")
+        return
+
     # 1. Filter Check
     media = message.video or message.document
     if not media:
@@ -96,7 +105,7 @@ async def telegram_file_handler(client: Client, message: Message):
         await message.reply_text("❌ This document does not look like a video.")
         return
 
-    # 👇 NAYA FEATURE: 2GB Max Size Barrier
+    # 2. Max Size Barrier (Server Saver)
     if media.file_size > Config.MAX_FILE_SIZE:
         await message.reply_text(
             f"❌ **Error: File is too large!**\n"
@@ -104,7 +113,8 @@ async def telegram_file_handler(client: Client, message: Message):
             f"Aapki file: `{format_bytes(media.file_size)}`"
         )
         return
-    # 2. Concurrency Check
+
+    # 3. Concurrency Check
     if file_manager.is_user_locked(user_id):
         await message.reply_text("⚠️ You already have a process running. Please wait.")
         return
@@ -113,7 +123,7 @@ async def telegram_file_handler(client: Client, message: Message):
     status_msg = await message.reply_text("⏳ **Processing video...**\n_Please wait while I prepare the stream._")
 
     try:
-        # 3. Download
+        # Download Logic
         file_ext = mimetypes.guess_extension(media.mime_type) or ".mp4"
         filename = f"{uuid.uuid4()}{file_ext}"
         save_path = os.path.join(Config.STORAGE_DIR, filename)
@@ -125,17 +135,18 @@ async def telegram_file_handler(client: Client, message: Message):
             progress_args=(status_msg, start_time)
         )
 
-        # 4. Generate Link
+        # Generate Link
         token = file_manager.add_video(user_id, save_path, media.mime_type)
-        
-        # Safe URL check
         stream_link = f"{get_safe_base_url()}/watch/{token}"
+        
+        # Expiry time ko settings se read karna
+        expiry_hours = file_manager.settings["expiry"] // 3600
 
         await status_msg.edit_text(
             f"✅ **Video Ready!**\n\n"
             f"📂 File: `{media.file_name or filename}`\n"
             f"💾 Size: `{format_bytes(media.file_size)}`\n"
-            f"⏳ Expires in: 24 Hours",
+            f"⏳ Expires in: {expiry_hours} Hours",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("▶ Watch Online", url=stream_link)]
             ])
@@ -144,18 +155,27 @@ async def telegram_file_handler(client: Client, message: Message):
     except Exception as e:
         logger.error(f"Error handling Telegram file: {e}")
         await status_msg.edit_text(f"❌ **Error:** Failed to process video.\n`{str(e)}`")
-        # Cleanup if failed
         if 'save_path' in locals() and os.path.exists(save_path):
             os.remove(save_path)
             
     finally:
         file_manager.unlock_user(user_id)
 
+
 @Client.on_message(filters.text & filters.regex(r"(https?://[^\s]+)"))
 async def url_handler(client: Client, message: Message):
     """Handles direct video URLs."""
     user_id = message.from_user.id
     url = message.text.strip()
+
+    # 👇 NAYA FEATURE: Boss Mode Security Checks
+    if file_manager.is_banned(user_id):
+        await message.reply_text("❌ You are permanently BANNED from using this bot.")
+        return
+        
+    if file_manager.settings.get("maintenance", False) and user_id != Config.ADMIN_ID:
+        await message.reply_text("⚙️ **Bot is under Maintenance!**\nBoss abhi bot par kuch kaam kar rahe hain. Thodi der baad try karein.")
+        return
 
     if file_manager.is_user_locked(user_id):
         await message.reply_text("⚠️ You already have a process running. Please wait.")
@@ -168,7 +188,6 @@ async def url_handler(client: Client, message: Message):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
-                # 1. Validation
                 if response.status != 200:
                     await status_msg.edit_text("❌ Error: Could not connect to URL.")
                     return
@@ -178,38 +197,41 @@ async def url_handler(client: Client, message: Message):
                      await status_msg.edit_text("❌ Error: The URL does not point to a valid video file.")
                      return
 
-                # 2. Prepare Path
-                filename = f"{uuid.uuid4()}.mp4" # Default to mp4 if unknown
+                # Download logic
+                filename = f"{uuid.uuid4()}.mp4" 
                 save_path = os.path.join(Config.STORAGE_DIR, filename)
                 
                 total_size = int(response.headers.get('Content-Length', 0))
+                
+                # NAYA FEATURE: Check size before downloading URL
+                if total_size > Config.MAX_FILE_SIZE:
+                    await status_msg.edit_text("❌ **Error: File from URL is too large!** (Max 2GB)")
+                    return
+
                 downloaded = 0
                 start_time = time.time()
 
-                # 3. Stream Download
                 with open(save_path, 'wb') as f:
-                    async for chunk in response.content.iter_chunked(1024 * 1024): # 1MB chunks
+                    async for chunk in response.content.iter_chunked(1024 * 1024): 
                         if not chunk:
                             break
                         f.write(chunk)
                         downloaded += len(chunk)
                         
-                        # Update progress every few seconds
                         if total_size > 0:
                             now = time.time()
                             if (now - start_time) > 5:
                                 await status_msg.edit_text(f"📥 **Downloading URL...**\nSize: {format_bytes(downloaded)}")
                                 start_time = now
 
-        # 4. Generate Link
+        # Generate Link
         token = file_manager.add_video(user_id, save_path, "video/mp4")
-        
-        # Safe URL check
         stream_link = f"{get_safe_base_url()}/watch/{token}"
+        expiry_hours = file_manager.settings["expiry"] // 3600
 
         await status_msg.edit_text(
             f"✅ **URL Downloaded!**\n\n"
-            f"⏳ Expires in: 24 Hours",
+            f"⏳ Expires in: {expiry_hours} Hours",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("▶ Watch Online", url=stream_link)]
             ])
@@ -223,4 +245,3 @@ async def url_handler(client: Client, message: Message):
             
     finally:
         file_manager.unlock_user(user_id)
-
