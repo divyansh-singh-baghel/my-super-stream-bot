@@ -9,8 +9,8 @@ class Config:
     BOT_TOKEN = os.getenv("BOT_TOKEN", "your_bot_token")
     ADMIN_ID = int(os.getenv("ADMIN_ID", "0")) 
 
-    MAIN_CHANNEL_ID = int(os.getenv("MAIN_CHANNEL_ID", "-1000000000000")) 
-    DB_CHANNEL_ID = int(os.getenv("DB_CHANNEL_ID", "-1000000000000"))
+    MAIN_CHANNEL_ID = int(os.getenv("MAIN_CHANNEL_ID", "-1003575704047")) 
+    DB_CHANNEL_ID = int(os.getenv("DB_CHANNEL_ID", "-1003608921273"))
     
     PORT = int(os.getenv("PORT", 8080)) 
     HOST = "0.0.0.0"
@@ -24,4 +24,5 @@ class Config:
 
 if not os.path.exists(Config.STORAGE_DIR):
     os.makedirs(Config.STORAGE_DIR)
+
 
