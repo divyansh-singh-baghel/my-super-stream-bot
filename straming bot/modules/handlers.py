@@ -61,6 +61,9 @@ async def progress_bar(current, total, status_msg, start_time):
 
 @Client.on_message(filters.command("start"))
 async def start_handler(client: Client, message: Message):
+    # 👇👇 YAHAN MAINE PRINT ADD KIYA HAI DEBUGGING KE LIYE 👇👇
+    print("🔥 BOT KO MESSAGE MIL GAYA BHAII !!")
+    
     await message.reply_text(
         "👋 **Hello! I am a Video Streaming Bot.**\n\n"
         "📤 **Send me a video file** or a **direct download link**.\n"
