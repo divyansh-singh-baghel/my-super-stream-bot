@@ -14,17 +14,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize Bot (in_memory=True yahan set hai)
-app = Client(
-    "TelegramStreamBot",
-    api_id=Config.API_ID,
-    api_hash=Config.API_HASH,
-    bot_token=Config.BOT_TOKEN,
-    plugins=dict(root="modules"),
-    in_memory=True
-)
-
 async def main():
+    # 👇 FIX YAHAN HAI: Client ko main() ke andar daal diya taaki loop same rahe 👇
+    app = Client(
+        "TelegramStreamBot",
+        api_id=Config.API_ID,
+        api_hash=Config.API_HASH,
+        bot_token=Config.BOT_TOKEN,
+        plugins=dict(root="modules"),
+        in_memory=True
+    )
+    
     # 1. Start Web Server
     server_task = asyncio.create_task(start_web_server())
     
@@ -35,7 +35,7 @@ async def main():
     try:
         await app.start()
         logger.info("🤖 Bot Started!")
-        logger.info(f"admin_id: {Config.API_ID}") # Verification ke liye
+        logger.info(f"admin_id: {Config.API_ID}")
 
         # Keep the bot running
         await idle()
